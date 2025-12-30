@@ -11,31 +11,37 @@ from dataprocessing import get_multiview_data
 # 核心工具：提取特征
 # ==========================================
 
+import torch.nn.functional as F  # 记得在文件头部加上这个
+
+
 def extract_common_features(network_model, mv_data, batch_size, device='cuda'):
-    """
-    提取【融合后】的特征 (使用 Mask 过滤掉无效数据)
-    """
     network_model.eval()
     data_loader, num_views, num_samples, _ = get_multiview_data(mv_data, batch_size)
 
     all_features = []
     all_labels = []
 
-    print("正在提取融合特征...")
+    print("正在提取 L2 归一化后的融合特征...")
     with torch.no_grad():
         for batch_idx, (sub_data_views, sub_labels, masks) in enumerate(data_loader):
             masks = masks.to(device)
             _, _, features = network_model(sub_data_views)
 
-            # --- 融合逻辑 ---
+            # --- 1. 堆叠与 Mask 过滤 ---
             stacked_features = torch.stack(features, dim=1)
             masks_expanded = masks.unsqueeze(2)
             sum_features = torch.sum(stacked_features * masks_expanded, dim=1)
             valid_counts = torch.sum(masks_expanded, dim=1)
             valid_counts[valid_counts == 0] = 1.0
+
+            # --- 2. 计算平均特征 ---
             avg_features = sum_features / valid_counts
 
-            all_features.append(avg_features.cpu().numpy())
+            # --- [核心修改] 3. 进行 L2 归一化 ---
+            # 这会将所有特征拉到同一个尺度，让 t-SNE 聚类更紧凑
+            avg_features = F.normalize(avg_features, p=2, dim=1)
+
+            all_features.append(avg_features.detach().cpu().numpy())
             all_labels.append(sub_labels)
 
     return np.concatenate(all_features, axis=0), np.concatenate(all_labels, axis=0)
@@ -71,7 +77,9 @@ def plot_tsne(network_model, mv_data, batch_size, device='cuda', save_name='tsne
     features, labels = extract_common_features(network_model, mv_data, batch_size, device)
 
     print("正在运行 t-SNE...")
-    tsne = TSNE(n_components=2, init='pca', random_state=42)
+    # 修改 TSNE 初始化部分
+    # perplexity 建议设为 30-50 之间，learning_rate 设为 200
+    tsne = TSNE(n_components=2, init='pca', random_state=42, perplexity=30, learning_rate=200)
     features_2d = tsne.fit_transform(features)
 
     plt.figure(figsize=(10, 8))
@@ -139,7 +147,9 @@ def plot_multiview_tsne(network_model, mv_data, batch_size, device='cuda', save_
     if num_views > 3: rows, cols = 2, 3
 
     plt.figure(figsize=(16, 12))
-    tsne = TSNE(n_components=2, init='pca', random_state=42)
+    # 修改 TSNE 初始化部分
+    # perplexity 建议设为 30-50 之间，learning_rate 设为 200
+    tsne = TSNE(n_components=2, init='pca', random_state=42, perplexity=30, learning_rate=200)
     unique_labels = np.unique(labels)
     try:
         colors = plt.cm.get_cmap('tab10', len(unique_labels))
