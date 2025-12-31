@@ -226,43 +226,6 @@ if __name__ == "__main__":
         # ... (前面的代码：写入 result.txt) ...
 
 
-
-        print("\n========== 开始可视化 & 自动评估 ==========")
-
-        # 1. 拿到预测结果
-        total_pred, pred_vectors, labels_vector = inference(mnw, mv_data, args.batch_size)
-
-        # 2. 自动算分
-        metrics_data = {}
-
-        # 算单视图
-        for i, view_pred in enumerate(pred_vectors):
-            # --- [关键修改] ---
-            # 你的 metrics.py 定义是 calculate_metrics(label, pred) -> (True, Pred)
-            # 所以这里要把 labels_vector (真实值) 放在前面！
-            acc, nmi, pur, ari = clustering(labels_vector, view_pred)
-            # -----------------
-
-            metrics_data[f'View {i + 1}'] = [acc, nmi, pur, ari]
-            print(f"View {i + 1}: ACC={acc:.4f}, NMI={nmi:.4f}")
-
-        # 算融合
-        # --- [关键修改] 同样要把 labels_vector 放在前面 ---
-        acc, nmi, pur, ari = clustering(labels_vector, total_pred)
-        # -----------------------------------------------
-
-        metrics_data['Fusion'] = [acc, nmi, pur, ari]
-        print(f"Fusion: ACC={acc:.4f}, NMI={nmi:.4f}")
-
-        # 3. 自动画图
-        # 确保 visualization.py 里的函数已经 import 进来了
-        try:
-            plot_metric_comparison(metrics_data, save_name=f'compare_metrics_{args.db}.png')
-            plot_multiview_tsne(mnw, mv_data, args.batch_size, device, save_name=f'compare_tsne_{args.db}.png')
-            print("可视化完成！请查看生成的 png 图片。")
-        except NameError:
-            print("提示：请确保在 main.py 开头导入了 plot_metric_comparison 和 plot_multiview_tsne")
-
     # dim_high_features = np.array([2000, 1500, 1024, 1000, 768, 512, 500, 256, 200], dtype=np.int32)
     # dim_low_features = np.array([2000, 1500, 1024, 1000, 768, 512, 500, 256, 200], dtype=np.int32)
     # seeds = np.array([10, 20, 50], dtype=np.int32)
@@ -328,3 +291,4 @@ if __name__ == "__main__":
     #                                         dim_idx, dim_high_feature, dim_low_feature, seed, batch_size,
     #                                         learning_rate, lmd, beta, acc, nmi, pur, ari, (time.time() - t)))
     #                                     f.flush()
+
