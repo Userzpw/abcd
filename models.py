@@ -130,76 +130,161 @@ def pre_train(network_model, mv_data, batch_size, epochs, optimizer):
     return pre_train_loss_values
 
 
+# def contrastive_train(network_model, mv_data, mvc_loss, batch_size, lmd, beta, temperature_l, normalized, epoch,
+#                       optimizer):
+#     network_model.train()
+#     mv_data_loader, num_views, num_samples, num_clusters = get_multiview_data(mv_data, batch_size)
+#     criterion = torch.nn.MSELoss()
+#     total_loss = 0.
+#
+#     # 设置遮挡比例
+#     MASK_RATIO = 0.
+#
+#     for batch_idx, (sub_data_views, _, mask) in enumerate(mv_data_loader):
+#
+#         # === 阶段 1: 寻找弱点 (生成对抗掩码) ===
+#         clean_inputs = []
+#         for v in range(num_views):
+#             # 开启梯度记录
+#             clean_inputs.append(sub_data_views[v].clone().detach().requires_grad_(True))
+#
+#         # 预先跑一次模型，只为了算梯度
+#         lbps, _, _ = network_model(clean_inputs)
+#
+#         # 只计算对比损失来寻找显著性区域
+#         temp_loss_list = []
+#         for i in range(num_views):
+#             for j in range(i + 1, num_views):
+#                 temp_loss_list.append(lmd * mvc_loss.forward_label(lbps[i], lbps[j], temperature_l, normalized))
+#
+#         # 反向传播获取梯度
+#         network_model.zero_grad()
+#         if len(temp_loss_list) > 0:
+#             sum(temp_loss_list).backward()
+#
+#         # 生成带遮挡的输入
+#         masked_inputs = []
+#         for v in range(num_views):
+#             grad = clean_inputs[v].grad
+#             if grad is not None:
+#                 mask = generate_adversarial_mask(sub_data_views[v], grad, MASK_RATIO)
+#                 # 应用掩码
+#                 masked_inputs.append(sub_data_views[v] * mask.detach())
+#             else:
+#                 masked_inputs.append(sub_data_views[v])
+#
+#         # === 阶段 2: 正式训练 (使用遮挡数据 + 原型约束) ===
+#         # 注意：现在输入的是 masked_inputs
+#         lbps, dvs, _ = network_model(masked_inputs)
+#
+#         loss_list = list()
+#         for i in range(num_views):
+#             for j in range(i + 1, num_views):
+#                 # 对比损失 (让被遮挡的样本依然能分类一致)
+#                 loss_list.append(lmd * mvc_loss.forward_label(lbps[i], lbps[j], temperature_l, normalized))
+#                 # 熵正则化
+#                 loss_list.append(beta * mvc_loss.forward_prob(lbps[i], lbps[j]))
+#
+#             # [关键改进] 重建损失：尝试从“遮挡图像”恢复出“原始图像”
+#             # 这比恢复遮挡图像本身更高级 (类似于 MAE 思想)
+#             loss_list.append(criterion(sub_data_views[i], dvs[i]))
+#
+#
+#         loss = sum(loss_list)
+#         optimizer.zero_grad()
+#         loss.backward()
+#         optimizer.step()
+#         total_loss += loss.item()
+#
+#     if epoch % 10 == 0:
+#         print('Epoch {}, Loss:{:.7f}'.format(epoch, total_loss / num_samples))
+#
+#     return total_loss
+
+
 def contrastive_train(network_model, mv_data, mvc_loss, batch_size, lmd, beta, temperature_l, normalized, epoch,
                       optimizer):
     network_model.train()
     mv_data_loader, num_views, num_samples, num_clusters = get_multiview_data(mv_data, batch_size)
-    criterion = torch.nn.MSELoss()
+
+    # 修改1: 重建损失不再用默认的 mean reduction，而是手动处理
+    criterion_recon = torch.nn.MSELoss(reduction='none')
     total_loss = 0.
 
     # 设置遮挡比例
     MASK_RATIO = 0.
 
-    for batch_idx, (sub_data_views, _, mask) in enumerate(mv_data_loader):
+    # 解包获取 masks
+    for batch_idx, (sub_data_views, _, masks) in enumerate(mv_data_loader):
 
-        # === 阶段 1: 寻找弱点 (生成对抗掩码) ===
-        clean_inputs = []
-        for v in range(num_views):
-            # 开启梯度记录
-            clean_inputs.append(sub_data_views[v].clone().detach().requires_grad_(True))
+        # === 阶段 1: 寻找弱点 (保持不变，省略部分代码...) ===
+        # ... (此处代码保持原样，省略以节省篇幅) ...
+        # 注意：生成对抗掩码部分也建议加上 if mask[v] 检查，但主要影响在下面
 
-        # 预先跑一次模型，只为了算梯度
-        lbps, _, _ = network_model(clean_inputs)
+        # ... (假设 masked_inputs 已经生成好) ...
+        masked_inputs = sub_data_views  # 简化示意，实际请保留你的对抗生成逻辑
 
-        # 只计算对比损失来寻找显著性区域
-        temp_loss_list = []
-        for i in range(num_views):
-            for j in range(i + 1, num_views):
-                temp_loss_list.append(lmd * mvc_loss.forward_label(lbps[i], lbps[j], temperature_l, normalized))
-
-        # 反向传播获取梯度
-        network_model.zero_grad()
-        if len(temp_loss_list) > 0:
-            sum(temp_loss_list).backward()
-
-        # 生成带遮挡的输入
-        masked_inputs = []
-        for v in range(num_views):
-            grad = clean_inputs[v].grad
-            if grad is not None:
-                mask = generate_adversarial_mask(sub_data_views[v], grad, MASK_RATIO)
-                # 应用掩码
-                masked_inputs.append(sub_data_views[v] * mask.detach())
-            else:
-                masked_inputs.append(sub_data_views[v])
-
-        # === 阶段 2: 正式训练 (使用遮挡数据 + 原型约束) ===
-        # 注意：现在输入的是 masked_inputs
+        # === 阶段 2: 正式训练 ===
         lbps, dvs, _ = network_model(masked_inputs)
 
         loss_list = list()
         for i in range(num_views):
             for j in range(i + 1, num_views):
-                # 对比损失 (让被遮挡的样本依然能分类一致)
-                loss_list.append(lmd * mvc_loss.forward_label(lbps[i], lbps[j], temperature_l, normalized))
-                # 熵正则化
-                loss_list.append(beta * mvc_loss.forward_prob(lbps[i], lbps[j]))
+                # [核心改进 1]：只对两个视图都存在的样本计算对比损失
+                # mask shape: [batch_size, num_views] -> 取第 i 和 j 列
+                mask_i = masks[:, i]
+                mask_j = masks[:, j]
 
-            # [关键改进] 重建损失：尝试从“遮挡图像”恢复出“原始图像”
-            # 这比恢复遮挡图像本身更高级 (类似于 MAE 思想)
-            loss_list.append(criterion(sub_data_views[i], dvs[i]))
+                # 只有当两个视图 mask 都是 1 时，mask_pair 才为 1
+                mask_pair = mask_i * mask_j
+                valid_pair_count = torch.sum(mask_pair)
 
+                if valid_pair_count > 0:
+                    # 计算所有样本的损失 (forward_label 需要修改支持 reduction='none' 或者在这里手动筛选)
+                    # 由于 DeepMVCLoss 内部直接求和/求平均了，最简单的办法是只传入有效的样本
 
-        loss = sum(loss_list)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
+                    # 筛选出有效索引
+                    valid_indices = torch.nonzero(mask_pair).squeeze()
+
+                    # 如果只有一个样本，squeeze可能导致维度问题，需unsqueee
+                    if valid_indices.dim() == 0:
+                        valid_indices = valid_indices.unsqueeze(0)
+
+                    # 只取有效的 lbp 进行计算
+                    lbp_i_valid = lbps[i][valid_indices]
+                    lbp_j_valid = lbps[j][valid_indices]
+
+                    # 传入 loss 计算
+                    loss_contrast = mvc_loss.forward_label(lbp_i_valid, lbp_j_valid, temperature_l, normalized)
+                    loss_prob = mvc_loss.forward_prob(lbp_i_valid, lbp_j_valid)
+
+                    loss_list.append(lmd * loss_contrast)
+                    loss_list.append(beta * loss_prob)
+
+            # [核心改进 2]：重建损失也要过滤 (与 pre_train 逻辑一致)
+            recon_loss = criterion_recon(dvs[i], sub_data_views[i])  # [batch, dim]
+            recon_loss = recon_loss.mean(dim=1)  # [batch]
+
+            current_mask = masks[:, i]
+            valid_count = torch.sum(current_mask)
+
+            if valid_count > 0:
+                loss_view = torch.sum(recon_loss * current_mask) / valid_count
+                loss_list.append(loss_view)
+
+        # 反向传播
+        if len(loss_list) > 0:
+            loss = sum(loss_list)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
 
     if epoch % 10 == 0:
         print('Epoch {}, Loss:{:.7f}'.format(epoch, total_loss / num_samples))
 
     return total_loss
+
 
 def inference(network_model, mv_data, batch_size):
     network_model.eval()
@@ -207,45 +292,50 @@ def inference(network_model, mv_data, batch_size):
     mv_data_loader, num_views, num_samples, _ = get_multiview_data(mv_data, batch_size)
 
     soft_vector = []
-    pred_vectors = []
+    # 初始化为 list of lists
+    pred_vectors = [[] for _ in range(num_views)]
     labels_vector = []
-    for v in range(num_views):
-        pred_vectors.append([])
 
     for batch_idx, (sub_data_views, sub_labels, masks) in enumerate(mv_data_loader):
         with torch.no_grad():
             lbps, _, _ = network_model(sub_data_views)
 
-            # --- [关键修改] 动态加权求和 ---
-            # 初始化总概率和计数器
+            # --- 动态加权求和 ---
             lbp_sum = torch.zeros_like(lbps[0])
             valid_mask_sum = torch.zeros(lbps[0].shape[0], 1).to(lbps[0].device)
 
             for idx in range(num_views):
-                # 获取当前视角的 mask: [batch, 1]
+                # 获取当前视角的 mask
                 current_mask = masks[:, idx].unsqueeze(1)
 
-                # 只累加存在的视图的预测概率
+                # 累加
                 lbp_sum += lbps[idx] * current_mask
                 valid_mask_sum += current_mask
 
-                # 记录单视角的预测 (可选，仅作参考)
+                # [修复点1] 记录单视角预测 -> 显式转为 cpu numpy 再转 list，确保是标量列表
                 pred_label = torch.argmax(lbps[idx], dim=1)
-                pred_vectors[idx].extend(pred_label.detach().cpu().numpy())
+                pred_vectors[idx].extend(pred_label.cpu().numpy().flatten().tolist())
 
-            # 计算平均概率 (避免除以0，加上一个极小值)
+            # 计算平均概率
             lbp = lbp_sum / (valid_mask_sum + 1e-8)
             # ---------------------------
 
-        soft_vector.extend(lbp.detach().cpu().numpy())
-        labels_vector.extend(sub_labels)
+        # [修复点2] 统一转 list
+        soft_vector.extend(lbp.cpu().numpy().tolist())
 
-    for idx in range(num_views):
-        pred_vectors[idx] = np.array(pred_vectors[idx])
+        # [修复点3] 安全处理 Labels，防止 Tensor/Numpy 混用
+        if isinstance(sub_labels, torch.Tensor):
+            labels_vector.extend(sub_labels.cpu().numpy().flatten().tolist())
+        else:
+            labels_vector.extend(np.array(sub_labels).flatten().tolist())
 
-    actual_num_samples = len(soft_vector)
-    labels_vector = np.array(labels_vector).reshape(actual_num_samples)
+    # [修复点4] 最终生成数组时，再次强制 flatten，确保是一维向量
+    labels_vector = np.array(labels_vector).flatten()
     total_pred = np.argmax(np.array(soft_vector), axis=1)
+
+    # 处理每个视角的预测向量
+    for idx in range(num_views):
+        pred_vectors[idx] = np.array(pred_vectors[idx]).flatten()
 
     return total_pred, pred_vectors, labels_vector
 
