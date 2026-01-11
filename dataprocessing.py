@@ -124,17 +124,41 @@ class MultiviewData(Dataset):
             self.labels = np.array(np.squeeze(mat['Y'])).astype(np.int32)
 
 
-        elif db == "hand":
-            mat = sio.loadmat(os.path.join(path, 'handwritten.mat'))
-            X_data = mat['X']
-            self.num_views = X_data.shape[1]
-            for idx in range(self.num_views):
-                self.data_views.append(X_data[0, idx].astype(np.float32))
+        elif db == "NoisyMNIST30000":
+
+            mat = sio.loadmat(os.path.join(path, 'NoisyMNIST30000.mat'))
+
+
+            X1 = mat['X1'].astype(np.float32)
+
+            X2 = mat['X2'].astype(np.float32)
+
+            self.data_views.append(X1)
+
+            self.data_views.append(X2)
+
+
+            self.num_views = len(self.data_views)
+
+            # 归一化 (配合 main.py 的 normalized=True)
+
             scaler = MinMaxScaler()
+
             for idx in range(self.num_views):
                 self.data_views[idx] = scaler.fit_transform(self.data_views[idx])
-            self.labels = np.array(np.squeeze(mat['Y']) + 1).astype(np.int32)
 
+            # 读取标签
+
+            # 假设标签变量名为 'Y' 或 'truelabel'
+
+
+
+            self.labels = np.array(np.squeeze(mat['Y'])).astype(np.int32)
+
+            # 如果标签是 1-10，需要转为 0-9
+
+            if np.min(self.labels) == 1:
+                self.labels = self.labels - 1
 
         else:
             raise NotImplementedError
