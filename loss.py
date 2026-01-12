@@ -73,7 +73,8 @@ class DeepMVCLoss(nn.Module):
 
         return loss
 
-
     def target_distribution(self, q):
-        weight = (q ** 2.0) / torch.sum(q, 0)
-        return (weight.t() / torch.sum(weight, 1)).t()
+        # 防止分母为 0
+        weight = (q ** 2.0) / (torch.sum(q, 0) + 1e-8)
+        # 防止归一化时分母为 0
+        return (weight.t() / (torch.sum(weight, 1) + 1e-8)).t()

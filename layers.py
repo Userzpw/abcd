@@ -50,6 +50,46 @@ class AutoDecoder(nn.Module):
     def forward(self, x):
         return self.decoder(x)
 
+#
+# class CVCLNetwork(nn.Module):
+#     def __init__(self, num_views, input_sizes, dims, dim_high_feature, dim_low_feature, num_clusters):
+#         super(CVCLNetwork, self).__init__()
+#         self.encoders = list()
+#         self.decoders = list()
+#         for idx in range(num_views):
+#             self.encoders.append(AutoEncoder(input_sizes[idx], dim_high_feature, dims))
+#             self.decoders.append(AutoDecoder(input_sizes[idx], dim_high_feature, dims))
+#         self.encoders = nn.ModuleList(self.encoders)
+#         self.decoders = nn.ModuleList(self.decoders)
+#
+#         # [修改点 1] 替换 MLP 为 映射层 + 原型层
+#         self.feature_map = nn.Linear(dim_high_feature, dim_low_feature)
+#         self.prototype_layer = PrototypeLayer(dim_low_feature, num_clusters)
+#
+#     def forward(self, data_views):
+#         lbps = list()
+#         dvs = list()
+#         features = list()
+#
+#         num_views = len(data_views)
+#         for idx in range(num_views):
+#             data_view = data_views[idx]
+#             high_features = self.encoders[idx](data_view)
+#
+#             # [修改点 2] 前向传播逻辑
+#             low_feature = self.feature_map(high_features)  # 降维
+#             label_probs = self.prototype_layer(low_feature)  # 计算概率
+#
+#             data_view_recon = self.decoders[idx](high_features)
+#
+#             features.append(low_feature)  # 保存低维特征供初始化用
+#             lbps.append(label_probs)
+#             dvs.append(data_view_recon)
+#
+#         return lbps, dvs, features
+
+
+# layers.py
 
 class CVCLNetwork(nn.Module):
     def __init__(self, num_views, input_sizes, dims, dim_high_feature, dim_low_feature, num_clusters):
@@ -58,11 +98,14 @@ class CVCLNetwork(nn.Module):
         self.decoders = list()
         for idx in range(num_views):
             self.encoders.append(AutoEncoder(input_sizes[idx], dim_high_feature, dims))
-            self.decoders.append(AutoDecoder(input_sizes[idx], dim_high_feature, dims))
+
+            # [修改 1] 解码器的输入维度从 dim_high_feature 改为 dim_low_feature
+            # 这确保了解码器试图从“聚类特征”恢复原始数据
+            self.decoders.append(AutoDecoder(input_sizes[idx], dim_low_feature, dims))
+
         self.encoders = nn.ModuleList(self.encoders)
         self.decoders = nn.ModuleList(self.decoders)
 
-        # [修改点 1] 替换 MLP 为 映射层 + 原型层
         self.feature_map = nn.Linear(dim_high_feature, dim_low_feature)
         self.prototype_layer = PrototypeLayer(dim_low_feature, num_clusters)
 
@@ -71,18 +114,21 @@ class CVCLNetwork(nn.Module):
         dvs = list()
         features = list()
 
-        num_views = len(data_views)
-        for idx in range(num_views):
+        for idx in range(len(data_views)):
             data_view = data_views[idx]
             high_features = self.encoders[idx](data_view)
 
-            # [修改点 2] 前向传播逻辑
-            low_feature = self.feature_map(high_features)  # 降维
-            label_probs = self.prototype_layer(low_feature)  # 计算概率
+            # 降维
+            low_feature = self.feature_map(high_features)
 
-            data_view_recon = self.decoders[idx](high_features)
+            # 计算概率
+            label_probs = self.prototype_layer(low_feature)
 
-            features.append(low_feature)  # 保存低维特征供初始化用
+            # [修改 2] 前向传播路径改变：从 low_feature 进行重构
+            # 梯度流：Recon Loss -> Decoder -> Low Feature -> Feature Map -> Encoder
+            data_view_recon = self.decoders[idx](low_feature)
+
+            features.append(low_feature)
             lbps.append(label_probs)
             dvs.append(data_view_recon)
 
